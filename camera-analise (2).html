@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Câmera: detecção de entidades</title>
+<style>
+:root{--bg:#eef2f4;--surf:#fff;--ink:#14213d;--mut:#5b6b80;--acc:#2f6bff;--line:#d5dde5}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1a26;--surf:#18273a;--ink:#e8eef4;--mut:#93a4b8;--acc:#6b9bff;--line:#2a3b52}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,sans-serif;line-height:1.45;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+main{max-width:600px;margin:0 auto;padding:16px}
+h1{font-size:1.25rem;margin:4px 0 12px}
+h2{font-size:1rem;margin:18px 0 8px}
+.cam{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:3/4}
+video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;text-align:center;padding:24px}
+.alert{display:none;margin:10px 0 0;padding:10px 12px;border-radius:10px;background:#ef4444;color:#fff;font-weight:600}
+.row{display:flex;gap:8px;margin:12px 0}
+button{flex:1;font:inherit;font-weight:600;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--surf);color:var(--ink)}
+button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.panel{background:var(--surf);border:1px solid var(--line);border-radius:14px;padding:4px 14px}
+.it{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.it:last-child{border-bottom:0}
+.sw{flex:none;width:18px;height:18px;border-radius:5px}
+.nm{flex:1;min-width:0}
+.nm b{display:block}
+.nm small,.note{color:var(--mut);font-size:.8rem}
+.ct{font-weight:600;min-width:1.5em;text-align:right}
+.kv{justify-content:space-between}
+.kv span:last-child{font-weight:600;text-align:right}
+.lgd{display:flex;flex-wrap:wrap;gap:6px 14px;margin:12px 2px 0}
+.lg{display:inline-flex;align-items:center;gap:6px;font-size:.85rem}
+.sq{width:11px;height:11px;border-radius:3px;flex:none}
+input[type=date],select{flex:1;min-width:0;font:inherit;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--surf);color:var(--ink)}
+.ev{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:.9rem}
+.ev:last-child{border-bottom:0}
+.ev .bar{width:6px;align-self:stretch;border-radius:3px;flex:none}
+.ev .tm{color:var(--mut);font-variant-numeric:tabular-nums;flex:none}
+.badge{display:inline-block;padding:1px 8px;border-radius:999px;color:#fff;font-size:.75rem;font-weight:600}
+input[type=checkbox]{width:22px;height:22px;accent-color:var(--acc)}
+textarea{width:100%;font:inherit;font-size:.85rem;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--surf);color:var(--ink);min-height:70px}
+.note{margin:8px 2px}
+</style>
+</head>
+<body>
+<main>
+<h1>Detecção de entidades</h1>
+<div class="cam"><video id="v" playsinline muted></video><canvas id="ov"></canvas><div class="hint" id="hint">Toque em “Ligar câmera” e permita o acesso.</div></div>
+<div class="alert" id="alert" role="alert"></div>
+<div class="row"><button class="p" id="go">Ligar câmera</button><button id="flip" disabled>Virar câmera</button></div>
+
+<div class="lgd" id="legend"></div>
+<p class="note" id="status"></p>
+
+<h2>Análise em tempo real</h2>
+<div class="panel" aria-live="polite">
+<div class="it kv"><span>Iluminação</span><span id="o-lux">—</span></div>
+<div class="it kv"><span>Tom da luz</span><span id="o-temp">—</span></div>
+<div class="it kv"><span>Cor predominante</span><span id="o-col">—</span></div>
+<div class="it kv"><span>Velocidade da câmera (GPS)</span><span id="o-kmh">—</span></div>
+<div class="it kv"><span>Movimento da câmera</span><span id="o-mov">—</span></div>
+<div class="it kv"><span>Objeto mais rápido</span><span id="o-spd">—</span></div>
+</div>
+
+<h2>Relatório</h2>
+<div class="row"><input type="date" id="rday" aria-label="Dia"><select id="rent" aria-label="Entidade"></select></div>
+<div class="row"><button class="p" id="rgen">Gerar relatório</button><button id="rmark">Marcar momento</button></div>
+<div class="panel" id="rsum"></div>
+<div class="panel" id="rlist" style="margin-top:10px"></div>
+<div class="row"><button id="rcopy">Copiar relatório</button><button id="rcsv">Baixar CSV</button><button id="rclr">Apagar tudo</button></div>
+<p class="note" id="rmsg">Os registros ficam salvos neste aparelho, no banco de dados do navegador.</p>
+<h2>Configuração</h2>
+<div class="panel" id="cfgp"></div>
+<p class="note">Desligue uma entidade e ela deixa de ser identificada na câmera.</p>
+<div class="row"><button id="cl">Copiar link</button><button id="cc">Copiar código</button></div>
+<textarea id="ta" placeholder="Cole aqui um código ou link de configuração" aria-label="Código de configuração"></textarea>
+<div class="row"><button id="ap">Aplicar código</button></div>
+<p class="note" id="msg">Copie o link e abra em outro aparelho: a configuração é aplicada sozinha.</p>
+<p class="note">Tudo é processado no seu aparelho. Nenhuma imagem é enviada ou salva. O modelo reconhece 80 tipos de objetos comuns (inclui faca, tesoura e taco), mas não reconhece armas de fogo. A velocidade da câmera vem do GPS do aparelho e precisa da permissão de localização. A velocidade dos objetos em km/h é uma estimativa relativa à câmera, calculada pelo tamanho típico de cada tipo de objeto.</p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+var EN='person,bicycle,car,motorcycle,airplane,bus,train,truck,boat,traffic light,fire hydrant,stop sign,parking meter,bench,bird,cat,dog,horse,sheep,cow,elephant,bear,zebra,giraffe,backpack,umbrella,handbag,tie,suitcase,frisbee,skis,snowboard,sports ball,kite,baseball bat,baseball glove,skateboard,surfboard,tennis racket,bottle,wine glass,cup,fork,knife,spoon,bowl,banana,apple,sandwich,orange,broccoli,carrot,hot dog,pizza,donut,cake,chair,couch,potted plant,bed,dining table,toilet,tv,laptop,mouse,remote,keyboard,cell phone,microwave,oven,toaster,sink,refrigerator,book,clock,vase,scissors,teddy bear,hair drier,toothbrush'.split(',');
+var PTN='pessoa,bicicleta,carro,moto,avião,ônibus,trem,caminhão,barco,semáforo,hidrante,placa de pare,parquímetro,banco,pássaro,gato,cachorro,cavalo,ovelha,vaca,elefante,urso,zebra,girafa,mochila,guarda-chuva,bolsa,gravata,mala,frisbee,esquis,snowboard,bola,pipa,taco de beisebol,luva de beisebol,skate,prancha de surfe,raquete,garrafa,taça,copo,garfo,faca,colher,tigela,banana,maçã,sanduíche,laranja,brócolis,cenoura,cachorro-quente,pizza,rosquinha,bolo,cadeira,sofá,planta,cama,mesa,vaso sanitário,TV,notebook,mouse,controle remoto,teclado,celular,micro-ondas,forno,torradeira,pia,geladeira,livro,relógio,vaso,tesoura,ursinho de pelúcia,secador de cabelo,escova de dentes'.split(',');
+var PT={};EN.forEach(function(e,i){PT[e]=PTN[i]});
+var ANIMAL='bird,cat,dog,horse,sheep,cow,elephant,bear,zebra,giraffe'.split(','),DANGER='knife,scissors,baseball bat'.split(',');
+var ENT=[
+{k:'face',n:'Rosto',c:'#2f6bff',d:'Rostos de pessoas'},
+{k:'person',n:'Pessoa',c:'#16a34a',d:'Corpo inteiro de pessoas'},
+{k:'animal',n:'Animal',c:'#f59e0b',d:'Gatos, cães, aves e outros'},
+{k:'object',n:'Objeto',c:'#a855f7',d:'Objetos do dia a dia'},
+{k:'danger',n:'Objeto perigoso',c:'#ef4444',d:'Faca, tesoura e taco'}];
+var SUB=[
+{k:'car',n:'Carro',c:'#06b6d4',d:'Carros',cl:['car']},
+{k:'moto',n:'Moto',c:'#ec4899',d:'Motos',cl:['motorcycle']},
+{k:'bike',n:'Bicicleta',c:'#84cc16',d:'Bicicletas',cl:['bicycle']},
+{k:'bus',n:'Ônibus e caminhão',c:'#64748b',d:'Ônibus e caminhões',cl:['bus','truck']},
+{k:'dog',n:'Cachorro',c:'#b45309',d:'Cães',cl:['dog']},
+{k:'cat',n:'Gato',c:'#e11d48',d:'Gatos',cl:['cat']},
+{k:'bird',n:'Pássaro',c:'#14b8a6',d:'Aves',cl:['bird']},
+{k:'phone',n:'Celular',c:'#6366f1',d:'Celulares',cl:['cell phone']}];
+var ALL=ENT.concat(SUB);
+var FEAT=[{k:'motion',n:'Movimento e velocidade',d:'Velocidade da câmera (GPS) e dos objetos'},{k:'env',n:'Ambiente',d:'Luz, tom e cor predominante'},{k:'rec',n:'Gravar relatório',d:'Salva as detecções neste aparelho'}];
+var DEF={motion:1,env:1,rec:1};ALL.forEach(function(e){DEF[e.k]=1});var cfg=Object.assign({},DEF);
+function enc(){return btoa(JSON.stringify(cfg))}
+function dec(s){var m=String(s).match(/cfg=([^&\s]+)/);if(m)s=m[1];s=decodeURIComponent(s.trim());var o=JSON.parse(atob(s));var r={};Object.keys(DEF).forEach(function(k){r[k]=o[k]===undefined?DEF[k]:(o[k]?1:0)});return r}
+function save(){try{localStorage.setItem('cfg',enc())}catch(e){}}
+try{var h=location.hash.match(/cfg=([^&]+)/);if(h){cfg=dec(h[0]);save()}else{var s=localStorage.getItem('cfg');if(s)cfg=dec(s)}}catch(e){cfg=Object.assign({},DEF)}
+
+var leg=$('legend'),cf=$('cfgp');
+ENT.forEach(function(e){leg.insertAdjacentHTML('beforeend','<span class="lg" data-k="'+e.k+'"><span class="sq" style="background:'+e.c+'"></span>'+e.n+'</span>')});
+function updLeg(){leg.querySelectorAll('.lg').forEach(function(x){x.style.opacity=cfg[x.dataset.k]?1:.35})}
+function buildCfg(){updLeg();cf.innerHTML='';ALL.concat(FEAT).forEach(function(e,i){
+  if(i===ENT.length)cf.insertAdjacentHTML('beforeend','<div class="it"><b>Sub-entidades</b></div>');
+  if(i===ALL.length)cf.insertAdjacentHTML('beforeend','<div class="it"><b>Recursos</b></div>');
+  var sw=e.c?'<span class="sw" style="background:'+e.c+'"></span>':'';
+  cf.insertAdjacentHTML('beforeend','<label class="it">'+sw+'<span class="nm"><b>'+e.n+'</b><small>'+e.d+'</small></span><input type="checkbox" data-k="'+e.k+'"'+(cfg[e.k]?' checked':'')+'></label>')});
+  cf.querySelectorAll('input').forEach(function(i){i.addEventListener('change',function(){cfg[i.dataset.k]=i.checked?1:0;save();updLeg();if(!i.checked)clearOff()})})}
+buildCfg();
+function clearOff(){if(!cfg.env){['o-lux','o-temp','o-col'].forEach(function(i){$(i).textContent='Desligado'})}
+  if(!cfg.motion){$('o-mov').textContent='Desligado';$('o-spd').textContent='Desligado';$('o-kmh').textContent='Desligado'}}
+clearOff();
+function copy(t,ok){function f(){var a=$('ta');a.value=t;a.select();try{document.execCommand('copy');msg(ok)}catch(e){msg('Copie manualmente o texto da caixa abaixo.')}}
+  if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(t).then(function(){msg(ok)},f);else f()}
+function msg(t){$('msg').textContent=t}
+$('cl').addEventListener('click',function(){copy(location.origin+location.pathname+'#cfg='+enc(),'Link copiado. Abra em outro aparelho para aplicar a configuração.')});
+$('cc').addEventListener('click',function(){copy(enc(),'Código copiado. Cole em “Aplicar código” no outro aparelho.')});
+$('ap').addEventListener('click',function(){try{cfg=dec($('ta').value);save();buildCfg();clearOff();msg('Configuração aplicada.')}catch(e){msg('Código inválido. Copie de novo.')}});
+
+var v=$('v'),ov=$('ov'),oc=ov.getContext('2d'),hint=$('hint'),go=$('go'),flip=$('flip');
+var lastKmh=null,lastRec={},lastCnt={},gpsId=null,lastPos=null,stream=null,facing='user',running=false,busy=false,model=null,fd=null,prevG=null,prevD=[],lastT=0;
+var W=80,H=60,sm=document.createElement('canvas');sm.width=W;sm.height=H;var sc=sm.getContext('2d',{willReadFrequently:true});
+try{if('FaceDetector' in window)fd=new FaceDetector({fastMode:true,maxDetectedFaces:5})}catch(e){fd=null}
+var st=$('status');
+function setStatus(){st.textContent=(model?'Modelo de objetos pronto. ':'Carregando modelo de objetos… ')+(fd?'Rosto: detector nativo.':'Rosto: modo aproximado por cor de pele.')}
+setStatus();
+if(window.cocoSsd){cocoSsd.load({base:'lite_mobilenet_v2'}).then(function(m){model=m;setStatus()}).catch(function(){st.textContent='Não foi possível carregar o modelo de objetos. Rosto e ambiente continuam funcionando.'})}
+else st.textContent='Não foi possível carregar o modelo de objetos (sem internet?). Rosto e ambiente continuam funcionando.';
+
+async function start(){
+  if(stream)stream.getTracks().forEach(function(t){t.stop()});
+  hint.style.display='flex';hint.textContent='Abrindo câmera…';
+  try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing},audio:false});
+    v.srcObject=stream;await v.play();hint.style.display='none';flip.disabled=false;go.textContent='Reiniciar câmera';
+    v.style.transform=facing==='user'?'scaleX(-1)':'none';prevG=null;prevD=[];startGPS();
+    if(!running){running=true;requestAnimationFrame(loop)}
+  }catch(e){hint.style.display='flex';hint.textContent='Não foi possível abrir a câmera ('+(e&&e.name?e.name:'erro')+'). Permita o acesso nas configurações do navegador.'}
+}
+function gdist(a,b){var R=6371000,r=Math.PI/180,dl=(b.latitude-a.lat)*r,dn=(b.longitude-a.lon)*r,x=Math.sin(dl/2)*Math.sin(dl/2)+Math.cos(a.lat*r)*Math.cos(b.latitude*r)*Math.sin(dn/2)*Math.sin(dn/2);return 2*R*Math.asin(Math.sqrt(x))}
+function startGPS(){
+  if(gpsId!==null)return;
+  if(!navigator.geolocation){$('o-kmh').textContent='GPS indisponível';return}
+  gpsId=navigator.geolocation.watchPosition(function(p){
+    var s=p.coords.speed;
+    if((s===null||isNaN(s))&&lastPos&&p.coords.accuracy<40){var dt=(p.timestamp-lastPos.t)/1000;if(dt>0)s=gdist(lastPos,p.coords)/dt}
+    lastPos={lat:p.coords.latitude,lon:p.coords.longitude,t:p.timestamp};lastKmh=(s===null||isNaN(s))?null:Math.round(s*3.6);
+    if(!cfg.motion)return;
+    $('o-kmh').textContent=(s===null||isNaN(s))?'Sem sinal de GPS':(s<.5?'0 km/h (parado)':Math.round(s*3.6)+' km/h')
+  },function(){$('o-kmh').textContent='GPS bloqueado'},{enableHighAccuracy:true,maximumAge:1000,timeout:15000})
+}
+function hueName(h){if(h<15||h>=345)return'vermelho';if(h<45)return'laranja';if(h<70)return'amarelo';if(h<165)return'verde';if(h<200)return'ciano';if(h<255)return'azul';if(h<290)return'roxo';return'rosa'}
+function hsv(r,g,b){r/=255;g/=255;b/=255;var mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn,h=0;if(d){if(mx===r)h=((g-b)/d)%6;else if(mx===g)h=(b-r)/d+2;else h=(r-g)/d+4;h*=60;if(h<0)h+=360}return[h,mx?d/mx:0,mx]}
+function analyze(px){
+  var n=W*H,R=0,G=0,B=0,L=0,g=new Uint8Array(n),hb=new Array(24).fill(0),sat=0;
+  for(var i=0;i<n;i++){var r=px[i*4],gg=px[i*4+1],b=px[i*4+2],y=.299*r+.587*gg+.114*b;R+=r;G+=gg;B+=b;L+=y;g[i]=y;
+    if(cfg.env){var q=hsv(r,gg,b);if(q[1]>.28&&q[2]>.2){hb[Math.floor(q[0]/15)%24]++;sat++}}}
+  R/=n;G/=n;B/=n;L/=n;
+  if(cfg.env){$('o-lux').textContent=(L<45?'Muito escuro':L<90?'Pouca luz':L<170?'Boa iluminação':'Muito clara')+' ('+Math.round(L/2.55)+'%)';
+    var d=R-B;$('o-temp').textContent=d>18?'Quente (amarelada)':d<-18?'Fria (azulada)':'Neutra';
+    if(sat<n*.12)$('o-col').textContent=L<60?'preto/escuro':L>190?'branco/claro':'tons de cinza';
+    else{var mi=0;for(var k=1;k<24;k++)if(hb[k]>hb[mi])mi=k;$('o-col').innerHTML='<span class="sw" style="display:inline-block;width:12px;height:12px;vertical-align:-1px;margin-right:6px;background:hsl('+(mi*15+7)+',70%,50%)"></span>'+hueName(mi*15+7)}}
+  if(cfg.motion&&prevG){var df=0;for(var j=0;j<n;j++)df+=Math.abs(g[j]-prevG[j]);df/=n;$('o-mov').textContent=df<2?'Parado':df<5?'Lento':df<12?'Rápido':'Muito movimento'}
+  prevG=g;
+}
+function skinBox(px,w0,h0){
+  var gw=16,gh=12,cw=W/gw,ch=H/gh,cells=new Array(gw*gh).fill(0);
+  for(var y=0;y<H;y++)for(var x=0;x<W;x++){var i=(y*W+x)*4,r=px[i],g=px[i+1],b=px[i+2],Y=.299*r+.587*g+.114*b,cb=128-.1687*r-.3313*g+.5*b,cr=128+.5*r-.4187*g-.0813*b;
+    if(Y>60&&cb>77&&cb<127&&cr>133&&cr<173)cells[Math.floor(y/ch)*gw+Math.floor(x/cw)]++}
+  var thr=cw*ch*.55,on=cells.map(function(c){return c>thr}),seen=[],best=null;
+  for(var s=0;s<gw*gh;s++){if(!on[s]||seen[s])continue;var stk=[s],n=0,x0=gw,y0=gh,x1=0,y1=0;seen[s]=1;
+    while(stk.length){var c=stk.pop(),cx=c%gw,cy=(c-cx)/gw;n++;x0=Math.min(x0,cx);x1=Math.max(x1,cx);y0=Math.min(y0,cy);y1=Math.max(y1,cy);
+      [[1,0],[-1,0],[0,1],[0,-1]].forEach(function(d){var nx=cx+d[0],ny=cy+d[1];if(nx<0||ny<0||nx>=gw||ny>=gh)return;var k=ny*gw+nx;if(on[k]&&!seen[k]){seen[k]=1;stk.push(k)}})}
+    var bw=x1-x0+1,bh=y1-y0+1,ar=bw/bh;if(n>=6&&ar>.5&&ar<1.4&&(!best||n>best.n))best={n:n,x:x0/gw*w0,y:y0/gh*h0,w:bw/gw*w0,h:bh/gh*h0}}
+  return best?[{k:'face',label:'Rosto (aprox.)',x:best.x,y:best.y,w:best.w,h:best.h}]:[];
+}
+function entOf(c){for(var i=0;i<SUB.length;i++)if(SUB[i].cl.indexOf(c)>-1)return SUB[i].k;return c==='person'?'person':ANIMAL.indexOf(c)>-1?'animal':DANGER.indexOf(c)>-1?'danger':'object'}
+var RH={person:1.7,bicycle:1,car:1.5,motorcycle:1.2,bus:3,truck:3,dog:.5,cat:.25,horse:1.6};
+function qual(k){return k<2?'parado':k<8?'lento':k<30?'rápido':'muito rápido'}
+
+async function tick(){
+  var w0=v.videoWidth,h0=v.videoHeight;if(!w0)return;
+  if(ov.width!==w0){ov.width=w0;ov.height=h0}
+  var now=performance.now(),dets=[],px=null;
+  if(cfg.env||cfg.motion||(cfg.face&&!fd)){sc.drawImage(v,0,0,W,H);px=sc.getImageData(0,0,W,H).data;analyze(px)}
+  if(cfg.face){
+    if(fd){try{var fr=await fd.detect(v);fr.forEach(function(r){var b=r.boundingBox;dets.push({k:'face',label:'Rosto',x:b.x,y:b.y,w:b.width,h:b.height})})}catch(e){fd=null}}
+    else if(px)dets=dets.concat(skinBox(px,w0,h0));
+  }
+  if(model&&(cfg.person||cfg.animal||cfg.object||cfg.danger)){
+    var pr=await model.detect(v,20,.5);
+    pr.forEach(function(p){var k=entOf(p.class);if(!cfg[k])return;dets.push({k:k,cls:p.class,conf:Math.round(p.score*100),label:(PT[p.class]||p.class)+' '+Math.round(p.score*100)+'%',x:p.bbox[0],y:p.bbox[1],w:p.bbox[2],h:p.bbox[3]})});
+  }
+  var dt=(now-lastT)/1000,best=null;lastT=now;
+  if(cfg.motion){
+    dets.forEach(function(d){if(!d.cls)return;var cx=d.x+d.w/2,cy=d.y+d.h/2,bd=1e9,bp=null;
+      prevD.forEach(function(p){if(p.cls===d.cls){var dd=Math.hypot(cx-p.cx,cy-p.cy);if(dd<bd){bd=dd;bp=p}}});
+      if(bp&&bd<w0*.4&&dt>0){
+        var dz=Math.max(0,bd-.03*d.h),rh=RH[d.cls];
+        if(rh){var kmh=dz/d.h*rh/dt*3.6;if(bp.sp!==undefined)kmh=(kmh+bp.sp)/2;d.sp=kmh;d.q=qual(kmh);d.label+=' · ≈'+Math.round(kmh)+' km/h · '+d.q;if(!best||kmh>best.sp)best=d}
+        else{var ps=dz/w0/dt*100;d.q=ps<4?'parado':ps<25?'lento':'rápido';d.label+=' · '+d.q}
+      }});
+    $('o-spd').textContent=best?(PT[best.cls]||best.cls)+' ≈'+Math.round(best.sp)+' km/h ('+best.q+')':'—';
+  }
+  prevD=dets.filter(function(d){return d.cls}).map(function(d){return{cls:d.cls,cx:d.x+d.w/2,cy:d.y+d.h/2,sp:d.sp}});
+  record(dets,now);
+  draw(dets,w0,h0);
+}
+function draw(dets,w0,h0){
+  oc.clearRect(0,0,w0,h0);var flipX=facing==='user',fs=Math.max(14,Math.round(w0/34)),cnt={},dg=[];
+  oc.font='600 '+fs+'px system-ui,sans-serif';oc.lineWidth=Math.max(3,w0/200);oc.textBaseline='top';
+  dets.forEach(function(d){
+    var e=ALL.filter(function(q){return q.k===d.k})[0],x=flipX?w0-d.x-d.w:d.x;cnt[d.k]=(cnt[d.k]||0)+1;
+    if(d.k==='danger')dg.push(PT[d.cls]||d.cls);
+    oc.strokeStyle=e.c;oc.strokeRect(x,d.y,d.w,d.h);
+    var tw=oc.measureText(d.label).width+10,ly=d.y>fs+8?d.y-fs-8:d.y;
+    oc.fillStyle=e.c;oc.fillRect(x,ly,tw,fs+8);oc.fillStyle='#fff';oc.fillText(d.label,x+5,ly+4)});
+  lastCnt=cnt;
+  var al=$('alert');if(dg.length){al.style.display='block';al.textContent='Alerta: possível objeto perigoso ('+dg.join(', ')+').'}else al.style.display='none';
+}
+function loop(){requestAnimationFrame(loop);if(busy||!stream||v.readyState<2)return;busy=true;tick().catch(function(){}).then(function(){busy=false})}
+var db=null,curEv=[];
+function p2(n){return n<10?'0'+n:''+n}
+function dayStr(d){return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())}
+function timeStr(d){return p2(d.getHours())+':'+p2(d.getMinutes())+':'+p2(d.getSeconds())}
+function openDB(){return new Promise(function(res){try{var r=indexedDB.open('camera-db',1);r.onupgradeneeded=function(){var st=r.result.createObjectStore('events',{keyPath:'id',autoIncrement:true});st.createIndex('day','day')};r.onsuccess=function(){db=r.result;res()};r.onerror=function(){res()}}catch(e){res()}})}
+function addEv(o){if(!db)return;try{db.transaction('events','readwrite').objectStore('events').add(o)}catch(e){}}
+function getDay(day){return new Promise(function(res){if(!db)return res([]);var out=[],q=db.transaction('events').objectStore('events').index('day').openCursor(IDBKeyRange.only(day));q.onsuccess=function(){var c=q.result;if(c){out.push(c.value);c.continue()}else res(out)};q.onerror=function(){res(out)}})}
+function mk(ent,name,color,obj,x){var d=new Date();x=x||{};addEv({ts:d.getTime(),day:dayStr(d),time:timeStr(d),ent:ent,entName:name,color:color,obj:obj,conf:x.conf===undefined?null:x.conf,kmh:x.kmh===undefined?null:x.kmh,q:x.q||null,gps:lastKmh})}
+function record(dets,now){
+  if(!cfg.rec||!db)return;
+  dets.forEach(function(d){var key=d.cls||'face';if(lastRec[key]&&now-lastRec[key]<8000)return;lastRec[key]=now;
+    var e=ALL.filter(function(q){return q.k===d.k})[0];
+    mk(d.k,e.n,e.c,d.cls?(PT[d.cls]||d.cls):'Rosto',{conf:d.conf,kmh:d.sp===undefined?undefined:Math.round(d.sp),q:d.q})})
+}
+function esc(t){return String(t).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
+function nz(x){return x===null||x===undefined?'':x}
+function row(e){return '<div class="ev"><span class="bar" style="background:'+e.color+'"></span><span class="tm">'+e.time+'</span><span class="nm"><span class="badge" style="background:'+e.color+'">'+esc(e.entName)+'</span> '+esc(e.obj)+'<br><small>'+(e.conf!==null?e.conf+'% ':'')+(e.kmh!==null?'· ≈'+e.kmh+' km/h '+esc(e.q||''):'')+(e.gps!==null?' · câmera '+e.gps+' km/h':'')+'</small></span></div>'}
+async function gen(){
+  var day=$('rday').value||dayStr(new Date()),ef=$('rent').value,ev=await getDay(day);
+  ev.sort(function(a,b){return a.ts-b.ts});
+  if(ef!=='all')ev=ev.filter(function(e){return e.ent===ef});
+  curEv=ev;
+  var by={},ob={},fast=null,dg=0,h='';
+  ev.forEach(function(e){by[e.ent]=by[e.ent]||{n:e.entName,c:e.color,t:0};by[e.ent].t++;ob[e.obj]=(ob[e.obj]||0)+1;if(e.kmh!==null&&(!fast||e.kmh>fast.kmh))fast=e;if(e.ent==='danger')dg++});
+  if(!ev.length)h='<div class="it kv"><span>Nenhum registro neste dia.</span></div>';
+  else{
+    var top=Object.keys(ob).sort(function(a,b){return ob[b]-ob[a]})[0];
+    h+='<div class="it kv"><span>Dia</span><span>'+day.split('-').reverse().join('/')+'</span></div>';
+    h+='<div class="it kv"><span>Registros</span><span>'+ev.length+'</span></div>';
+    h+='<div class="it kv"><span>Período</span><span>'+ev[0].time+' às '+ev[ev.length-1].time+'</span></div>';
+    h+='<div class="it kv"><span>Mais frequente</span><span>'+esc(top)+' ('+ob[top]+'×)</span></div>';
+    if(fast)h+='<div class="it kv"><span>Mais rápido</span><span>'+esc(fast.obj)+' ≈'+fast.kmh+' km/h</span></div>';
+    h+='<div class="it kv"><span>Alertas de perigo</span><span>'+dg+'</span></div>';
+    Object.keys(by).forEach(function(k){h+='<div class="it"><span class="sw" style="background:'+by[k].c+'"></span><span class="nm"><b>'+esc(by[k].n)+'</b></span><span class="ct">'+by[k].t+'</span></div>'});
+  }
+  $('rsum').innerHTML=h;
+  $('rlist').innerHTML=ev.slice().reverse().map(row).join('');
+}
+function reportText(){var day=($('rday').value||'').split('-').reverse().join('/');return 'RELATÓRIO '+day+'\n'+curEv.map(function(e){return e.time+' | '+e.entName+' | '+e.obj+(e.conf!==null?' | '+e.conf+'%':'')+(e.kmh!==null?' | ≈'+e.kmh+' km/h':'')+(e.gps!==null?' | câmera '+e.gps+' km/h':'')}).join('\n')}
+function csvText(){var r=['dia,hora,entidade,objeto,confianca,kmh,ritmo,camera_kmh'];curEv.forEach(function(e){r.push([e.day,e.time,e.entName,e.obj,nz(e.conf),nz(e.kmh),nz(e.q),nz(e.gps)].map(function(x){return '"'+String(x).replace(/"/g,'""')+'"'}).join(','))});return r.join('\n')}
+$('rday').value=dayStr(new Date());
+$('rent').innerHTML='<option value="all">Todas as entidades</option>'+ALL.map(function(e){return '<option value="'+e.k+'">'+e.n+'</option>'}).join('')+'<option value="mark">Marcação</option>';
+$('rgen').addEventListener('click',gen);$('rday').addEventListener('change',gen);$('rent').addEventListener('change',gen);
+$('rmark').addEventListener('click',function(){var t=Object.keys(lastCnt).map(function(k){var e=ALL.filter(function(q){return q.k===k})[0];return e.n+' '+lastCnt[k]}).join(', ');mk('mark','Marcação','#eab308','Momento marcado: '+(t||'nada detectado'));$('rmsg').textContent='Momento marcado.';setTimeout(gen,150)});
+$('rcopy').addEventListener('click',function(){copy(reportText(),'Relatório copiado.');$('rmsg').textContent='Relatório copiado.'});
+$('rcsv').addEventListener('click',function(){var b=new Blob(['\ufeff'+csvText()],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='relatorio-'+($('rday').value||'dia')+'.csv';document.body.appendChild(a);a.click();a.remove()});
+$('rclr').addEventListener('click',function(){if(db&&confirm('Apagar todos os registros deste aparelho?')){var q=db.transaction('events','readwrite').objectStore('events').clear();q.onsuccess=function(){gen()}}});
+openDB().then(gen);
+go.addEventListener('click',start);
+flip.addEventListener('click',function(){facing=facing==='user'?'environment':'user';start()});
+})();
+</script>
+</body>
+</html>
